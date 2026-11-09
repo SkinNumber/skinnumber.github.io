@@ -1,0 +1,146 @@
+const $ = id => document.getElementById(id);
+const font = [
+  ['010','101','101','101','010'], ['010','110','010','010','111'],
+  ['111','001','111','100','111'], ['111','001','011','001','111'],
+  ['101','101','111','001','001'], ['111','100','111','001','111'],
+  ['011','100','111','101','111'], ['111','001','010','010','010'],
+  ['111','101','111','101','111'], ['111','101','111','001','110']
+];
+const output = document.createElement('canvas');
+output.width = output.height = 64;
+const ctx = output.getContext('2d', { willReadFrequently: true });
+const torsoFaces = {front: 20, back: 32};
+let source, name, request = 0, currentNumber = null;
+
+function stamp(number) {
+  if (number === '100') return ['10010010','10101101','10101101','10101101','10010010'];
+  return font[Number(number[0])].map((row, i) =>
+    number.length === 1 ? row : row + '0' + font[Number(number[1])][i]
+  );
+}
+
+function addNumber(ctx, number) {
+  const rows = stamp(number);
+  const offset = Math.floor((8 - rows[0].length) / 2);
+  ctx.fillStyle = '#ffffff';
+  for (const x of Object.values(torsoFaces)) {
+    rows.forEach((row, j) => [...row].forEach((pixel, i) => {
+      if (pixel === '1') ctx.fillRect(x + offset + i, 39 + j, 1, 1);
+    }));
+  }
+}
+
+function expandLegacy(ctx, bitmap) {
+  // Mirror the original right limbs into the left-limb UV slots.
+  const faces = [[4,0,4,0,4], [8,0,8,0,4], [0,4,8,4,12],
+    [4,4,4,4,12], [8,4,0,4,12], [12,4,12,4,12]];
+  for (const [from, to] of [[0, 16], [40, 32]]) {
+    for (const [sx, sy, dx, dy, height] of faces) {
+      ctx.save();
+      ctx.translate(to + dx + 4, 48 + dy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(bitmap, from + sx, 16 + sy, 4, height, 0, 0, 4, height);
+      ctx.restore();
+    }
+  }
+}
+
+function armWidth(ctx) {
+  function empty(x, y) {
+    const pixels = ctx.getImageData(x, y, 2, 12).data;
+    return !pixels.some((value, index) => index % 4 === 3 && value !== 0);
+  }
+  return empty(54, 20) && empty(46, 52) ? 3 : 4;
+}
+
+function drawPreview(preview, side, arm) {
+  const back = side === 'back';
+  const rightArm = back ? 12 : 4 - arm;
+  const leftArm = back ? 4 - arm : 12;
+  const armFace = back ? 8 + arm : 4;
+  const rightLeg = back ? 8 : 4;
+  const leftLeg = back ? 4 : 8;
+  const legFace = back ? 12 : 4;
+  const torso = torsoFaces[side];
+  const head = back ? 24 : 8;
+  const pieces = [
+    [head, 8, head + 32, 8, 8, 8, 4, 0],
+    [torso, 20, torso, 36, 8, 12, 4, 8],
+    [40 + armFace, 20, 40 + armFace, 36, arm, 12, rightArm, 8],
+    [32 + armFace, 52, 48 + armFace, 52, arm, 12, leftArm, 8],
+    [legFace, 20, legFace, 36, 4, 12, rightLeg, 20],
+    [16 + legFace, 52, legFace, 52, 4, 12, leftLeg, 20]
+  ];
+  preview.clearRect(0, 0, 16, 32);
+  for (const [x, y, outerX, outerY, w, h, dx, dy] of pieces) {
+    preview.drawImage(output, x, y, w, h, dx, dy, w, h);
+    preview.drawImage(output, outerX, outerY, w, h, dx, dy, w, h);
+  }
+}
+
+function parseNumber(value) {
+  const raw = value.trim();
+  return /^(?:[1-9][0-9]?|100)$/.test(raw) ? raw : null;
+}
+
+function render() {
+  currentNumber = parseNumber($('number').value);
+  $('number').setAttribute('aria-invalid', String(currentNumber === null));
+  $('download').disabled = !source || currentNumber === null;
+  $('status').textContent = currentNumber === null ? 'Enter a whole number from 1 to 100.' :
+    source?.height === 32 ? 'This older skin will download as a 64 × 64 PNG with a jacket layer.' : '';
+  $('previews').hidden = !source;
+  if (!source) return;
+  ctx.clearRect(0, 0, 64, 64);
+  ctx.drawImage(source, 0, 0);
+  if (source.height === 32) expandLegacy(ctx, source);
+  if (currentNumber !== null) addNumber(ctx, currentNumber);
+  const arm = source.height === 32 ? 4 : armWidth(ctx);
+  for (const side of Object.keys(torsoFaces)) drawPreview($(side).getContext('2d'), side, arm);
+}
+
+async function load(file) {
+  const id = ++request;
+  source?.close();
+  source = null;
+  render();
+  $('status').textContent = 'Opening skin…';
+  try {
+    const signature = new Uint8Array(await file.slice(0, 24).arrayBuffer());
+    const png = [137,80,78,71,13,10,26,10];
+    if (signature.length !== 24 || !png.every((byte, i) => signature[i] === byte)) {
+      throw Error('Choose a PNG file.');
+    }
+    const header = new DataView(signature.buffer);
+    if (header.getUint32(16) !== 64 || ![32, 64].includes(header.getUint32(20))) {
+      throw Error('Choose a 64 × 64 or 64 × 32 skin PNG.');
+    }
+    const bitmap = await createImageBitmap(file);
+    if (id !== request) { bitmap.close(); return; }
+    source = bitmap;
+    name = file.name;
+    render();
+  } catch (error) {
+    if (id === request) $('status').textContent = error.message || 'Could not open this skin.';
+  }
+}
+
+$('file').addEventListener('change', event => {
+  if (event.target.files[0]) load(event.target.files[0]);
+});
+$('number').addEventListener('input', render);
+$('download').addEventListener('click', () => {
+  if (!source || currentNumber === null) return;
+  const filename = name.replace(/\.png$/i, '') + '-' + currentNumber + '.png';
+  output.toBlob(blob => {
+    if (!blob) { $('status').textContent = 'Could not export the PNG. Try again.'; return; }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, 'image/png');
+});

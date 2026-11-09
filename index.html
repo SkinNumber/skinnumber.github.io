@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { margin: 24px; font: 16px system-ui, sans-serif; }
+  main { display: grid; justify-items: start; gap: 12px; }
+  label { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  input[type=text] { width: 4ch; }
+  #file { max-width: 100%; }
+  #previews:not([hidden]) { display: flex; flex-wrap: wrap; gap: 12px; }
+  figure { margin: 0; }
+  canvas { display: block; width: 96px; height: 192px; border: 1px solid #ccc; image-rendering: pixelated; background: #eee; }
+  #status { margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <label>Skin PNG <input id="file" type="file" accept=".png,image/png"></label>
+  <label>Number (1–100) <input id="number" type="text" inputmode="numeric" maxlength="3" value="1"></label>
+  <div id="previews" hidden>
+    <figure><canvas id="front" width="16" height="32" aria-label="Full skin from the front"></canvas><figcaption>Front</figcaption></figure>
+    <figure><canvas id="back" width="16" height="32" aria-label="Full skin from the back"></canvas><figcaption>Back</figcaption></figure>
+  </div>
+  <button id="download" type="button" disabled>Download PNG</button>
+  <p id="status" role="status"></p>
+</main>
+<script src="./app.js"></script>
+</body>
+</html>
